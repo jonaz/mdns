@@ -212,7 +212,7 @@ func (c *client) query(params *QueryParam) error {
 
 	// Send the query
 	m := new(dns.Msg)
-	m.SetQuestion(serviceAddr, dns.TypePTR)
+	m.SetQuestion(serviceAddr, dns.TypeANY)
 	// RFC 6762, section 18.12.  Repurposing of Top Bit of qclass in Question
 	// Section
 	//
@@ -236,12 +236,14 @@ func (c *client) query(params *QueryParam) error {
 		select {
 		case resp := <-msgCh:
 			var inp *ServiceEntry
+			var qType = dns.TypePTR
 			for _, answer := range resp.Answer {
 				// TODO(reddaly): Check that response corresponds to serviceAddr?
 				switch rr := answer.(type) {
 				case *dns.PTR:
 					// Create new entry for this
 					inp = ensureName(inprogress, rr.Ptr)
+					qType = dns.TypeTXT
 
 				case *dns.SRV:
 					// Check for a target mismatch
@@ -253,12 +255,14 @@ func (c *client) query(params *QueryParam) error {
 					inp = ensureName(inprogress, rr.Hdr.Name)
 					inp.Host = rr.Target
 					inp.Port = int(rr.Port)
+					qType = dns.TypeA
 
 				case *dns.TXT:
 					// Pull out the txt
 					inp = ensureName(inprogress, rr.Hdr.Name)
 					inp.Info = strings.Join(rr.Txt, "|")
 					inp.hasTXT = true
+					qType = dns.TypeSRV
 
 				case *dns.A:
 					// Pull out the IP
@@ -291,7 +295,11 @@ func (c *client) query(params *QueryParam) error {
 			} else {
 				// Fire off a node specific query
 				m := new(dns.Msg)
-				m.SetQuestion(inp.Name, dns.TypePTR)
+				if inp.Host != "" {
+					m.SetQuestion(inp.Host, qType)
+				} else {
+					m.SetQuestion(inp.Name, qType)
+				}
 				m.RecursionDesired = false
 				if err := c.sendQuery(m); err != nil {
 					log.Printf("[ERR] mdns: Failed to query instance %s: %v", inp.Name, err)
