@@ -335,7 +335,11 @@ func (c *client) recv(l *net.UDPConn, msgCh chan *dns.Msg) {
 	for !c.closed {
 		n, err := l.Read(buf)
 		if err != nil {
-			log.Printf("[ERR] mdns: Failed to read packet: %v", err)
+			select {
+			case <-c.closedCh: // Check if the connection is closed
+			default:
+				log.Printf("[ERR] mdns: Failed to read packet: %v", err)
+			}
 			continue
 		}
 		msg := new(dns.Msg)
